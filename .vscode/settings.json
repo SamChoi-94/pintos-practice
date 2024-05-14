@@ -1,0 +1,8 @@
+{
+    "files.associations": {
+        "process.h": "c",
+        "palloc.h": "c",
+        "vm.h": "c",
+        "interrupt.h": "c"
+    }
+}
