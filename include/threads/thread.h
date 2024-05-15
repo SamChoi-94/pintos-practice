@@ -94,9 +94,12 @@ struct thread {
 	int priority;                       /* Priority. */
 
 	int64_t wakeup_ticks;				/* csw - 일어날 시각 */
-
+	struct lock* waiting_lock;	
 	/* Shared between thread.c and synch.c. */
 	struct list_elem elem;              /* List element. */
+
+	struct list donors;				/* csw - 기부자들 */
+	struct list_elem donor_elem;	
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
@@ -128,6 +131,13 @@ tid_t thread_create (const char *name, int priority, thread_func *, void *);
 
 void thread_block (void);
 void thread_unblock (struct thread *);
+
+bool compare_priority (const struct list_elem *, const struct list_elem *,
+                        void *);
+bool compare_priority_in_sema(const struct list_elem *, const struct list_elem *,
+                        void *);
+void preempt_priority(void);
+
 void thread_sleep (int64_t);
 void thread_wakeup (int64_t);
 

@@ -64,9 +64,6 @@ static void init_thread (struct thread *, const char *name, int priority);
 static void do_schedule(int status);
 static void schedule (void);
 static tid_t allocate_tid (void);
-static bool compare_priority (const struct list_elem *, const struct list_elem *,
-                        void *);
-
 
 /* Returns true if T appears to point to a valid thread. */
 #define is_thread(t) ((t) != NULL && (t)->magic == THREAD_MAGIC)
@@ -212,12 +209,7 @@ thread_create (const char *name, int priority,
 
 	/* Add to run queue. */
 	thread_unblock (t);
-
-	struct thread* curr_thread = thread_current();
-	
-	if (t->priority > curr_thread->priority) {
-		thread_yield();
-	}
+	preempt_priority();
 
 	return tid;
 }
@@ -276,23 +268,25 @@ void thread_sleep (int64_t wakeup_time) {
 }
 
 void thread_wakeup (int64_t curr_tick) {
+	enum intr_level old_level;
+	old_level = intr_disable ();				
+
 	struct list_elem *item;
 
   for (item = list_begin (&sleep_list); item != list_end (&sleep_list);) {
-	struct thread *cur_thread = list_entry(item, struct thread, elem);	
 
+	struct thread *cur_thread = list_entry(item, struct thread, elem);	
 	if (cur_thread->wakeup_ticks <= curr_tick) {
-		enum intr_level old_level;
-		old_level = intr_disable ();				
 
 		item = list_remove (item);	// csw - list_remove는 아이템 삭제 후 다음 아이템을 반환함
 		thread_unblock(cur_thread);
-
-		intr_set_level(old_level);		
+		preempt_priority();
+			
 	} else {
 		item = list_next(item);
 	}	
   }		
+  intr_set_level(old_level);
 }
 
 /* Returns the name of the running thread. */
@@ -351,7 +345,8 @@ thread_yield (void) {
 
 	ASSERT (!intr_context ());
 	
-	struct thread *first_thread = list_entry(list_begin(&ready_list), struct thread, elem); // csw - list_entry 매크로는 list 내부 아이템을 스레드로 바꾸는 방법으로 추정됨
+	// struct thread *first_thread = list_entry(list_begin(&ready_list), struct thread, elem); // csw - list_entry 매크로는 list 내부 아이템을 스레드로 바꾸는 방법으로 추정됨
+
 	old_level = intr_disable ();
 	if (curr != idle_thread) {
 		// list_push_back (&ready_list, &curr->elem);
@@ -364,31 +359,26 @@ thread_yield (void) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
-	struct thread *curr_thread = thread_current ();
-	// printf("현재 스레드(%d) 우선순위 조정 %d -> %d \n", curr_thread->tid, curr_thread->priority, new_priority);
-	curr_thread->priority = new_priority;	
-		
-	// printf("\n\n");
-
-	struct list_elem * el = list_begin(&ready_list);	
-
-	while (1) {
-		struct thread * item = list_entry (el, struct thread, elem);
-		// printf("스레드 %d의 우선순위 %d \n", item->tid, item->priority);				
-		// csw: 리스트의 맨 첫번째 스레드가 아마 우선순위가 제일 높을 거임. 그래서 루프 안 돌고 그거 하나만 검사해도 될 듯?
-		// printf("러닝 스레드 %d의 우선순위 %d \n", curr_thread->tid, curr_thread->priority);
-		if (curr_thread->priority < item->priority) {
-			thread_yield();
-			break;
-		}
-
-		if (el->next == 0) {
-			break;
-		}
-
-		el = list_next(el);
-	}
+	thread_current ()->priority = new_priority;		
+	preempt_priority();
 }
+
+void
+preempt_priority () {
+	struct thread *curr_thread = thread_current ();
+	if (curr_thread == idle_thread) {
+		return;
+	}
+	if (list_empty(&ready_list)) {
+		return;
+	}			
+	struct thread * first_thread = list_entry (list_front(&ready_list), struct thread, elem);
+	if (curr_thread->priority < first_thread->priority) {
+		thread_yield();
+	}	
+}
+
+
 
 /* Returns the current thread's priority. */
 int
@@ -484,6 +474,8 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
+	t->original_prority = priority;
+	list_init(&t->donors);
 	t->magic = THREAD_MAGIC;
 }
 
@@ -665,7 +657,7 @@ allocate_tid (void) {
 	return tid;
 }
 
-static bool compare_priority (const struct list_elem *a_, const struct list_elem *b_,
+bool compare_priority (const struct list_elem *a_, const struct list_elem *b_,
             void *aux UNUSED) {
 	const struct thread *a = list_entry (a_, struct thread, elem);
 	const struct thread *b = list_entry (b_, struct thread, elem);

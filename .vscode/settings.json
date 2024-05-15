@@ -3,6 +3,9 @@
         "process.h": "c",
         "palloc.h": "c",
         "vm.h": "c",
-        "interrupt.h": "c"
+        "interrupt.h": "c",
+        "stdbool.h": "c",
+        "string.h": "c",
+        "io.h": "c"
     }
 }

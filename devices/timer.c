@@ -89,8 +89,8 @@ timer_elapsed (int64_t then) {
 
 /* Suspends execution for approximately TICKS timer ticks. */
 void timer_sleep (int64_t ticks) {	
-	int64_t start = timer_ticks ();			// 10초
-	int64_t wakeup_time = start + ticks;	// 15초
+	int64_t start = timer_ticks ();			
+	int64_t wakeup_time = start + ticks;	
 	
 	ASSERT(intr_get_level() == INTR_ON);
 	thread_sleep(wakeup_time);	
@@ -129,6 +129,7 @@ timer_interrupt (struct intr_frame *args UNUSED) {
 	ticks++;
 	thread_tick ();		
 	thread_wakeup (ticks);	
+	
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
