@@ -198,14 +198,16 @@ void lock_acquire(struct lock *lock)
 	struct thread *holder = lock->holder;
 
 	// Priority donation
-	if (holder != NULL && (curr_thread->priority > holder->priority))
-	{
-		curr_thread->waiting_lock = lock; // current thread is waiting on this lock		
-		if (list_empty(&holder->donors)) {
-			holder->original_prority = holder->priority;
-		}		
-		holder->priority = curr_thread->priority;			
-		list_push_back(&holder->donors, &curr_thread->donor_elem);
+	if (holder != NULL)
+	{	
+		curr_thread->waiting_lock = lock;		
+		if ((curr_thread->priority > holder->priority)) {
+			if (list_empty(&holder->donors)) {
+				holder->original_prority = holder->priority;
+			}		
+			holder->priority = curr_thread->priority;			
+			list_push_back(&holder->donors, &curr_thread->donor_elem);
+		}
 	}
 
 	sema_down(&lock->semaphore);
