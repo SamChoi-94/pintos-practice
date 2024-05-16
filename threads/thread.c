@@ -359,7 +359,11 @@ thread_yield (void) {
 /* Sets the current thread's priority to NEW_PRIORITY. */
 void
 thread_set_priority (int new_priority) {
-	thread_current ()->priority = new_priority;		
+	struct thread *curr_thread = thread_current ();
+	
+	curr_thread->original_prority = new_priority;
+	curr_thread->priority = new_priority;
+
 	preempt_priority();
 }
 
@@ -475,6 +479,10 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
 	t->original_prority = priority;
+
+	// printf("현 priority %d \n", t->priority);
+	// printf("오리지널 priority %d \n", t->original_prority);
+
 	list_init(&t->donors);
 	t->magic = THREAD_MAGIC;
 }

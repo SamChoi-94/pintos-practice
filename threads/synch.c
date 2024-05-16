@@ -188,27 +188,6 @@ void lock_init(struct lock *lock)
    interrupt handler.  This function may be called with
    interrupts disabled, but interrupts will be turned back on if
    we need to sleep. */
-// void
-// lock_acquire (struct lock *lock) {
-// 	ASSERT (lock != NULL);
-// 	ASSERT (!intr_context ());
-// 	ASSERT (!lock_held_by_current_thread (lock));
-
-// 	struct thread* curr_thread = thread_current ();
-// 	struct thread* holder = lock->holder;
-
-//     // enum intr_level old_level = intr_disable();
-// 	if (holder != NULL && (curr_thread->priority > holder->priority)) {
-// 		holder->original_prority = holder->priority;
-// 		// list_push_back(&holder->donors, &curr_thread->elem);
-// 		holder->priority = curr_thread->priority;
-// 	}
-// 	// intr_set_level(old_level);
-
-// 	sema_down (&lock->semaphore);
-// 	lock->holder = curr_thread;
-// }
-
 void lock_acquire(struct lock *lock)
 {
 	ASSERT(lock != NULL);
@@ -221,9 +200,12 @@ void lock_acquire(struct lock *lock)
 	// Priority donation
 	if (holder != NULL && (curr_thread->priority > holder->priority))
 	{
-		curr_thread->waiting_lock = lock; // current thread is waiting on this lock
-		holder->original_prority = holder->priority;
-		holder->priority = curr_thread->priority;	
+		curr_thread->waiting_lock = lock; // current thread is waiting on this lock		
+		if (list_empty(&holder->donors)) {
+			holder->original_prority = holder->priority;
+		}		
+		holder->priority = curr_thread->priority;			
+		list_push_back(&holder->donors, &curr_thread->donor_elem);
 	}
 
 	sema_down(&lock->semaphore);
@@ -260,31 +242,25 @@ void lock_release(struct lock *lock)
 	ASSERT(lock != NULL);
 	ASSERT(lock_held_by_current_thread(lock));
 
-	// csw - 인터럽트 활성비활성이 과연 필요할지..
-	// struct thread *holder = lock->holder;
-	// int wait_list_size = list_size(&lock->semaphore.waiters);
-	// enum intr_level old_level = intr_disable();
-	// if (!list_empty(&lock->semaphore.waiters)) {
-	// 	struct list_elem *next_holder = list_begin(&lock->semaphore.waiters);
-	// 	list_remove(next_holder);
+	struct thread *holder = lock->holder;
+	// csw - 깊이 8까지 조심
+	if (!list_empty(&holder->donors)) {
+		struct list_elem *item = list_begin(&holder->donors);
+		while (item != list_end(&holder->donors)) {
+			struct thread *thread = list_entry(item, struct thread, donor_elem);
+			if (thread->waiting_lock == lock) {
+				item = list_remove(item);  // list_remove returns the next element
+			} else {
+				item = list_next(item);
+			}
+		}
+	}
 
-	// 	printf("맥스 호출 !!");
-	// 	struct list_elem * max_item = list_max(&holder->donors, compare_priority , NULL);	// 과연 이게 맥스로 나올 지..
-	// 	if (max_item != 0) {
-	// 		struct thread * max_thread = list_entry(max_item, struct thread, elem);
-	// 		// printf("csw - 맥스값으로 나오는가? %d가 %d보다 커야 함 \n", max_thread->priority, holder->priority);
-	// 		holder->priority = max_thread->priority;
-	// 	}
-	// }
-	// intr_set_level(old_level);
-
-	// struct thread *holder = lock->holder;
-	// if (holder->original_prority > holder->priority) {
-	// 	holder->priority = holder->original_prority;
-	// }
-
-	if (lock->holder != NULL && (lock->holder->priority > lock->holder->original_prority)) {
-		lock->holder->priority = lock->holder->original_prority;
+	if (!list_empty(&holder->donors)) {
+		struct thread *max_donor = list_entry(list_max(&holder->donors, compare_priority, NULL), struct thread, donor_elem);
+		holder->priority = max_donor->priority;
+	} else if (holder->priority > holder->original_prority) {		
+		holder->priority = holder->original_prority;
 	}
 
 	lock->holder = NULL;
@@ -395,7 +371,6 @@ void cond_broadcast(struct condition *cond, struct lock *lock)
 bool compare_priority_in_sema(const struct list_elem *a, const struct list_elem *b,
 							  void *aux UNUSED)
 {
-
 	struct semaphore_elem *sema_a = list_entry(a, struct semaphore_elem, elem);
 	struct semaphore_elem *sema_b = list_entry(b, struct semaphore_elem, elem);
 
