@@ -90,7 +90,7 @@ struct thread {
 	tid_t tid;                          /* Thread identifier. */
 	enum thread_status status;          /* Thread state. */
 	char name[16];                      /* Name (for debugging purposes). */
-	int original_prority;				/* csw - 기존 우선순위 */
+	int original_priority;				/* csw - 기존 우선순위 */
 	int priority;                       /* Priority. */
 
 	int64_t wakeup_ticks;				/* csw - 일어날 시각 */
