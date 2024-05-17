@@ -197,20 +197,25 @@ void lock_acquire(struct lock *lock)
 	struct thread *curr_thread = thread_current();
 	struct thread *holder = lock->holder;
 
-	// Priority donation
 	if (holder != NULL)
-	{	
-		curr_thread->waiting_lock = lock;		
-		if ((curr_thread->priority > holder->priority)) {
-			if (list_empty(&holder->donors)) {
-				holder->original_prority = holder->priority;
-			}		
-			holder->priority = curr_thread->priority;			
-			list_push_back(&holder->donors, &curr_thread->donor_elem);
+	{
+		curr_thread->waiting_lock = lock;
+		int isFirst = 0;
+		while (curr_thread->priority > holder->priority) {
+			holder->priority = curr_thread->priority;
+			if (isFirst == 0) {
+				list_push_back(&holder->donors, &curr_thread->donor_elem);
+				isFirst += 1;
+			}
+			if (holder->waiting_lock == NULL) {
+				break;
+			}
+			holder = holder->waiting_lock->holder;
 		}
 	}
 
 	sema_down(&lock->semaphore);
+	curr_thread->waiting_lock = NULL;
 	lock->holder = curr_thread;
 }
 
@@ -245,7 +250,7 @@ void lock_release(struct lock *lock)
 	ASSERT(lock_held_by_current_thread(lock));
 
 	struct thread *holder = lock->holder;
-	// csw - 깊이 8까지 조심
+
 	if (!list_empty(&holder->donors)) {
 		struct list_elem *item = list_begin(&holder->donors);
 		while (item != list_end(&holder->donors)) {
@@ -261,8 +266,8 @@ void lock_release(struct lock *lock)
 	if (!list_empty(&holder->donors)) {
 		struct thread *max_donor = list_entry(list_max(&holder->donors, compare_priority, NULL), struct thread, donor_elem);
 		holder->priority = max_donor->priority;
-	} else if (holder->priority > holder->original_prority) {		
-		holder->priority = holder->original_prority;
+	} else {
+		holder->priority = holder->original_priority;
 	}
 
 	lock->holder = NULL;

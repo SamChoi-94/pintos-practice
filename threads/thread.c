@@ -361,8 +361,15 @@ void
 thread_set_priority (int new_priority) {
 	struct thread *curr_thread = thread_current ();
 	
-	curr_thread->original_prority = new_priority;
+	curr_thread->original_priority = new_priority;
 	curr_thread->priority = new_priority;
+
+	if (!list_empty(&curr_thread->donors)) {
+		struct thread *max_donor = list_entry(list_max(&curr_thread->donors, compare_priority, NULL), struct thread, donor_elem);
+		if (max_donor->priority > curr_thread->priority) {	// csw - max_donor->priority > curr_thread->priority 조건 없어도 테스트 통과됐음
+			curr_thread->priority = max_donor->priority;
+		}		
+	}
 
 	preempt_priority();
 }
@@ -478,10 +485,10 @@ init_thread (struct thread *t, const char *name, int priority) {
 	strlcpy (t->name, name, sizeof t->name);
 	t->tf.rsp = (uint64_t) t + PGSIZE - sizeof (void *);
 	t->priority = priority;
-	t->original_prority = priority;
+	t->original_priority = priority;
 
 	// printf("현 priority %d \n", t->priority);
-	// printf("오리지널 priority %d \n", t->original_prority);
+	// printf("오리지널 priority %d \n", t->original_priority);
 
 	list_init(&t->donors);
 	t->magic = THREAD_MAGIC;
