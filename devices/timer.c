@@ -126,10 +126,15 @@ timer_print_stats (void) {
 static void
 timer_interrupt (struct intr_frame *args UNUSED) {
 	// printf("\t csw - 타이머 인터럽트 수행, ticks => %d \n", ticks);
-	ticks++;
+	ticks++;	
 	thread_tick ();		
-	thread_wakeup (ticks);	
-	
+
+	mlfqs_increase_recent_cpu();	
+	if (thread_mlfqs) {
+		thread_calc (ticks);				
+	}
+
+	thread_wakeup (ticks);				
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
