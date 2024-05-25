@@ -50,6 +50,9 @@ process_create_initd (const char *file_name) {
 		return TID_ERROR;
 	strlcpy (fn_copy, file_name, PGSIZE);
 
+	char *save_ptr;
+    strtok_r(file_name, " ", &save_ptr);
+
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
 	if (tid == TID_ERROR)
@@ -176,9 +179,22 @@ process_exec (void *f_name) {
 	/* We first kill the current context */
 	process_cleanup ();
 
+	char *parse[64];
+    char *token, *save_ptr;
+    int count = 0;
+    for (token = strtok_r(file_name, " ", &save_ptr); token != NULL; token = strtok_r(NULL, " ", &save_ptr)) {
+        parse[count++] = token;
+	}
+
 	/* And then load the binary */
 	success = load (file_name, &_if);
 
+	argument_stack(parse, count, &_if.rsp);
+	_if.R.rdi = count;
+	_if.R.rsi = (char *)_if.rsp + 8;
+
+	hex_dump(_if.rsp, _if.rsp, USER_STACK - (uint64_t)_if.rsp, true);
+	
 	/* If load failed, quit. */
 	palloc_free_page (file_name);
 	if (!success)
@@ -189,6 +205,38 @@ process_exec (void *f_name) {
 	NOT_REACHED ();
 }
 
+void argument_stack(char **parse, int count, void **rsp) {
+    for (int i = count - 1; i > -1; i--)
+    {
+        for (int j = strlen(parse[i]); j > -1; j--)
+        {
+            (*rsp)--;                      
+            **(char **)rsp = parse[i][j]; 
+			printf("for debug \n");
+        }
+        parse[i] = *(char **)rsp;
+    }
+
+    // 정렬 패딩 push
+    int padding = (int)*rsp % 8;
+    for (int i = 0; i < padding; i++)
+    {
+        (*rsp)--;
+        **(uint8_t **)rsp = 0; // rsp 직전까지 값 채움
+		printf("for debug \n");
+    }
+	
+    for (int i = count - 1; i > -1; i--)
+    {
+        (*rsp) -= 8; 
+        **(char ***)rsp = parse[i]; 
+		printf("save pointer");
+    }
+
+    // return address push
+    (*rsp) -= 8;
+    **(void ***)rsp = 0;
+}
 
 /* Waits for thread TID to die and returns its exit status.  If
  * it was terminated by the kernel (i.e. killed due to an
@@ -204,6 +252,11 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
+
+  for (int i = 0; i < 100000000; i++) {
+	
+  }
+
 	return -1;
 }
 
@@ -414,9 +467,8 @@ load (const char *file_name, struct intr_frame *if_) {
 	/* Start address. */
 	if_->rip = ehdr.e_entry;
 
-	/* TODO: Your code goes here.
-	 * TODO: Implement argument passing (see project2/argument_passing.html). */
-
+	/* TODO: Your code goes here. - csw
+	 * TODO: Implement argument passing (see project2/argument_passing.html). */			
 	success = true;
 
 done:
