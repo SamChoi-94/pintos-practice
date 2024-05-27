@@ -1,10 +1,14 @@
 #ifndef THREADS_THREAD_H
 #define THREADS_THREAD_H
 
+#define FDT_PAGES 2
+#define FDT_COUNT_LIMIT 128 // limit fdidx
+
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "threads/synch.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -92,6 +96,19 @@ struct thread {
 	char name[16];                      /* Name (for debugging purposes). */
 	int original_priority;				/* csw - 기존 우선순위 */
 	int priority;                       /* Priority. */
+	int exit_status;					/* csw - 종료 상태 */
+	struct file **fdt;
+	int next_fd;
+	
+	struct intr_frame parent_if;
+    struct list child_list; // 추가
+    struct list_elem child_elem; // 추가
+	
+	struct semaphore load_sema;
+	struct semaphore exit_sema;
+	struct semaphore wait_sema;
+
+	struct file *running;
 
 	int64_t wakeup_ticks;				/* csw - 일어날 시각 */
 	struct lock* waiting_lock;	
