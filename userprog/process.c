@@ -40,20 +40,26 @@ process_init (void) {
  * Notice that THIS SHOULD BE CALLED ONCE. */
 tid_t
 process_create_initd (const char *file_name) {
+	printf("csw: 파일네임 -> %s \n", file_name);
 	char *fn_copy;
 	tid_t tid;
-
+	
 	/* Make a copy of FILE_NAME.
 	 * Otherwise there's a race between the caller and load(). */
 	fn_copy = palloc_get_page (0);
-	if (fn_copy == NULL)
+	if (fn_copy == NULL) {
 		return TID_ERROR;
+	}
 	strlcpy (fn_copy, file_name, PGSIZE);
+
+	char *save_ptr;
+    strtok_r(file_name, " ", &save_ptr);
 
 	/* Create a new thread to execute FILE_NAME. */
 	tid = thread_create (file_name, PRI_DEFAULT, initd, fn_copy);
-	if (tid == TID_ERROR)
+	if (tid == TID_ERROR) {
 		palloc_free_page (fn_copy);
+	}
 	return tid;
 }
 
@@ -63,7 +69,6 @@ initd (void *f_name) {
 #ifdef VM
 	supplemental_page_table_init (&thread_current ()->spt);
 #endif
-
 	process_init ();
 
 	if (process_exec (f_name) < 0)
@@ -204,6 +209,10 @@ process_wait (tid_t child_tid UNUSED) {
 	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
 	 * XXX:       to add infinite loop here before
 	 * XXX:       implementing the process_wait. */
+	for (int i=0; i<10000000; i++) {
+
+	}
+
 	return -1;
 }
 
@@ -322,6 +331,19 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
  * Returns true if successful, false otherwise. */
 static bool
 load (const char *file_name, struct intr_frame *if_) {
+	printf("csw: load() file_name -> %s \n", file_name);
+
+	char *fn_copy;
+	fn_copy = palloc_get_page (0);
+	if (fn_copy == NULL) {
+		printf("csw: 메모리 할당 에러 발생");
+		return false;
+	}
+	strlcpy (fn_copy, file_name, PGSIZE);
+
+	char *save_ptr;
+    strtok_r(fn_copy, " ", &save_ptr);
+
 	struct thread *t = thread_current ();
 	struct ELF ehdr;
 	struct file *file = NULL;
@@ -336,9 +358,9 @@ load (const char *file_name, struct intr_frame *if_) {
 	process_activate (thread_current ());
 
 	/* Open executable file. */
-	file = filesys_open (file_name);
+	file = filesys_open (fn_copy);
 	if (file == NULL) {
-		printf ("load: %s: open failed\n", file_name);
+		printf ("load: %s: open failed\n", fn_copy);
 		goto done;
 	}
 
@@ -350,7 +372,7 @@ load (const char *file_name, struct intr_frame *if_) {
 			|| ehdr.e_version != 1
 			|| ehdr.e_phentsize != sizeof (struct Phdr)
 			|| ehdr.e_phnum > 1024) {
-		printf ("load: %s: error loading executable\n", file_name);
+		printf ("load: %s: error loading executable\n", fn_copy);
 		goto done;
 	}
 
@@ -416,6 +438,18 @@ load (const char *file_name, struct intr_frame *if_) {
 
 	/* TODO: Your code goes here.
 	 * TODO: Implement argument passing (see project2/argument_passing.html). */
+	char *parse[128];
+	char *token;
+	save_ptr = NULL;
+
+	int count = 0;
+   for (token = strtok_r (file_name, " ", &save_ptr); token != NULL; token = strtok_r (NULL, " ", &save_ptr)) {
+	  parse[count] = token;
+	  printf ("csw: 토크나이징 '%s'\n", token);		
+	  count++;
+   }    	
+	
+	argument_stack(parse, count, if_);	
 
 	success = true;
 
@@ -468,6 +502,45 @@ validate_segment (const struct Phdr *phdr, struct file *file) {
 
 	/* It's okay. */
 	return true;
+}
+
+void argument_stack(char **parse, int count, struct intr_frame* if_) {
+	printf("csw: for debug \n");
+	printf("csw: parse[0] : %s \n ", parse[0]);
+	
+	// char *argument_addr[128];
+	int index;
+	for (int i=count; i>0; i--) {
+		char *str = parse[i - 1];
+		printf("csw: size -> %d \n", strlen(str));
+
+		for (int j=strlen(str) + 1; j>0; j--) {						
+			if_->rsp--;
+			if (j == strlen(str) + 1) {
+				*(char*)(if_->rsp) = 0;					
+				continue;
+			}
+
+			char c = str[j-1];
+			*(char*)(if_->rsp) = c;	
+			if (j == 1) {
+				// argument_addr[index] = (char*) (if_->rsp);
+				// index++;
+				parse[i - 1] = (char*) (if_->rsp);	
+			}									
+		}		
+	}
+
+	short alignment_count = if_->rsp % 8;
+	for (int i=0; i<alignment_count; i++) {
+		if_->rsp--;
+		*(char*)(if_->rsp) = 0;
+	}	
+
+	if_->rsp--;
+	*(char*)(if_->rsp) = 0;	
+
+	
 }
 
 #ifndef VM
