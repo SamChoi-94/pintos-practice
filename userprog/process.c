@@ -531,23 +531,25 @@ void argument_stack(char **parse, int count, struct intr_frame* if_) {
 		*(char*)(if_->rsp) = 0;
 	}	
 
-	// if_->rsp--;
-	// *(char*)(if_->rsp) = 0;	
+	if_->rsp = if_->rsp - 8;
+	*(int *) if_->rsp = 0;	
 
 	for (int i=count; i>0; i--) {
 		if_->rsp = if_->rsp - 8;
 		*(char **) (if_->rsp) = parse[i - 1];
 	}
-
-	// printf("csw: hex dump 출력 ~~ \n");
-	// hex_dump(if_->rsp, if_->rsp, USER_STACK - if_->rsp, true);
 	
-	if_->rsp = if_->rsp - 4;
-	*(int *)if_->rsp = count;
+	// if_->rsp = if_->rsp - 4;
+	// *(int *)if_->rsp = count;
 
 	if_->rsp = if_->rsp - 8;
-	*(void **)if_->rsp = (void*) 0;	
+	*(void **)if_->rsp = (void *) 0;	
 
+	if_->R.rdi = count;
+	if_->R.rsi = if_->rsp + 8;
+
+	// printf("csw: hex dump 출력 ~~ \n");
+	// hex_dump(if_->rsp, if_->rsp, USER_STACK - if_->rsp, true);	
 }
 
 #ifndef VM
