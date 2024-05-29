@@ -40,7 +40,7 @@ process_init (void) {
  * Notice that THIS SHOULD BE CALLED ONCE. */
 tid_t
 process_create_initd (const char *file_name) {
-	printf("csw: 파일네임 -> %s \n", file_name);
+	// printf("csw: 파일네임 -> %s \n", file_name);
 	char *fn_copy;
 	tid_t tid;
 	
@@ -331,12 +331,11 @@ static bool load_segment (struct file *file, off_t ofs, uint8_t *upage,
  * Returns true if successful, false otherwise. */
 static bool
 load (const char *file_name, struct intr_frame *if_) {
-	printf("csw: load() file_name -> %s \n", file_name);
+	// printf("csw: load() file_name -> %s \n", file_name);
 
 	char *fn_copy;
 	fn_copy = palloc_get_page (0);
 	if (fn_copy == NULL) {
-		printf("csw: 메모리 할당 에러 발생");
 		return false;
 	}
 	strlcpy (fn_copy, file_name, PGSIZE);
@@ -445,7 +444,6 @@ load (const char *file_name, struct intr_frame *if_) {
 	int count = 0;
    for (token = strtok_r (file_name, " ", &save_ptr); token != NULL; token = strtok_r (NULL, " ", &save_ptr)) {
 	  parse[count] = token;
-	  printf ("csw: 토크나이징 '%s'\n", token);		
 	  count++;
    }    	
 	
@@ -504,15 +502,11 @@ validate_segment (const struct Phdr *phdr, struct file *file) {
 	return true;
 }
 
-void argument_stack(char **parse, int count, struct intr_frame* if_) {
-	printf("csw: for debug \n");
-	printf("csw: parse[0] : %s \n ", parse[0]);
-	
-	// char *argument_addr[128];
+void argument_stack(char **parse, int count, struct intr_frame* if_) {	
+	// char *argument_addr[128];	// 주소값 따로 저장하려고 하면 오류가 발생함
 	int index;
 	for (int i=count; i>0; i--) {
 		char *str = parse[i - 1];
-		printf("csw: size -> %d \n", strlen(str));
 
 		for (int j=strlen(str) + 1; j>0; j--) {						
 			if_->rsp--;
@@ -525,7 +519,7 @@ void argument_stack(char **parse, int count, struct intr_frame* if_) {
 			*(char*)(if_->rsp) = c;	
 			if (j == 1) {
 				// argument_addr[index] = (char*) (if_->rsp);
-				// index++;
+				index++;
 				parse[i - 1] = (char*) (if_->rsp);	
 			}									
 		}		
@@ -537,10 +531,23 @@ void argument_stack(char **parse, int count, struct intr_frame* if_) {
 		*(char*)(if_->rsp) = 0;
 	}	
 
-	if_->rsp--;
-	*(char*)(if_->rsp) = 0;	
+	// if_->rsp--;
+	// *(char*)(if_->rsp) = 0;	
 
+	for (int i=count; i>0; i--) {
+		if_->rsp = if_->rsp - 8;
+		*(char **) (if_->rsp) = parse[i - 1];
+	}
+
+	// printf("csw: hex dump 출력 ~~ \n");
+	// hex_dump(if_->rsp, if_->rsp, USER_STACK - if_->rsp, true);
 	
+	if_->rsp = if_->rsp - 4;
+	*(int *)if_->rsp = count;
+
+	if_->rsp = if_->rsp - 8;
+	*(void **)if_->rsp = (void*) 0;	
+
 }
 
 #ifndef VM
