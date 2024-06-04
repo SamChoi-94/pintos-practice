@@ -205,10 +205,7 @@ process_exec (void *f_name) {
  * This function will be implemented in problem 2-2.  For now, it
  * does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) {
-	/* XXX: Hint) The pintos exit if process_wait (initd), we recommend you
-	 * XXX:       to add infinite loop here before
-	 * XXX:       implementing the process_wait. */
+process_wait (tid_t child_tid UNUSED) {	
 	for (int i=0; i<10000000; i++) {
 
 	}
@@ -225,6 +222,16 @@ process_exit (void) {
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
 
+	// csw: fd 2부터 시작하는 게 맞을지, 0부터 시작하는 게 맞을지 .. 아님 둘 다 틀렸을지
+	// struct file **fdt = curr->fdt;
+	// for (int fd=2; fd<=128; fd++) {
+	// 	struct file *file = fdt[fd];
+	// 	if (file == NULL) {
+	// 		continue;
+	// 	}
+	// 	file_close(file);
+	// }
+	
 	process_cleanup ();
 }
 
@@ -551,6 +558,52 @@ void argument_stack(char **parse, int count, struct intr_frame* if_) {
 	// printf("csw: hex dump 출력 ~~ \n");
 	// hex_dump(if_->rsp, if_->rsp, USER_STACK - if_->rsp, true);	
 }
+
+
+int process_add_file (struct file *f) {	
+	struct thread *cur = thread_current();
+	int next_fd = cur->current_fd + 1;
+	cur->current_fd = cur->current_fd + 1;
+	struct file **fdt = cur->fdt;
+	fdt[next_fd] = f;	
+
+	return next_fd;
+}
+
+struct file *process_get_file (int fd) {
+	struct thread *cur = thread_current();	
+    struct file **fdt = cur->fdt;
+
+    return fdt[fd];
+}
+
+void process_close_file (int fd) {
+	struct thread *cur = thread_current();	
+    struct file **fdt = cur->fdt;
+
+	file_close(fdt[fd]);
+
+	cur->current_fd = cur->current_fd - 1;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 #ifndef VM
 /* Codes of this block will be ONLY USED DURING project 2.
