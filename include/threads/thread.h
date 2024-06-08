@@ -105,6 +105,7 @@ struct thread {
 
 	int recent_cpu;
 	int nice;	
+
 	int exit_status;
 	int current_fd;
 	
@@ -112,6 +113,9 @@ struct thread {
 	struct semaphore wait_sema;
 	struct semaphore exit_sema;
 	struct semaphore load_sema;
+
+	struct list child_list;
+	struct list_elem child_elem;
 
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */

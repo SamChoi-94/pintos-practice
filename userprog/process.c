@@ -60,6 +60,10 @@ process_create_initd (const char *file_name) {
 	if (tid == TID_ERROR) {
 		palloc_free_page (fn_copy);
 	}
+
+	// struct thread *child_process = get_child_process(tid);
+	// sema_down(&child_process->wait_sema);
+	
 	return tid;
 }
 
@@ -206,11 +210,15 @@ process_exec (void *f_name) {
  * does nothing. */
 int
 process_wait (tid_t child_tid UNUSED) {	
-	for (int i=0; i<10000000; i++) {
-
-	}
-
-	return -1;
+	struct thread *child_process = get_child_process(child_tid);
+	if (child_process == NULL) {
+		return -1;
+	}	
+	sema_down(&child_process->wait_sema);		
+	list_remove(&child_process->child_elem);
+	// sema_up(&child_process->exit_sema);
+	
+	return child_process->exit_status;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -222,17 +230,17 @@ process_exit (void) {
 	 * TODO: project2/process_termination.html).
 	 * TODO: We recommend you to implement process resource cleanup here. */
 
-	// csw: fd 2부터 시작하는 게 맞을지, 0부터 시작하는 게 맞을지 .. 아님 둘 다 틀렸을지
-	// struct file **fdt = curr->fdt;
-	// for (int fd=2; fd<=128; fd++) {
-	// 	struct file *file = fdt[fd];
-	// 	if (file == NULL) {
-	// 		continue;
-	// 	}
-	// 	file_close(file);
-	// }
+	// csw: fd 2부터 시작하는 게 맞는 거 같음
+	for (int fd=2; fd<128; fd++) {
+		close(fd);
+	}
+
+	palloc_free_page(curr->fdt);
 	
 	process_cleanup ();
+
+	sema_up(&curr->wait_sema);
+	// sema_down(&curr->exit_sema);
 }
 
 /* Free the current process's resources. */
@@ -511,7 +519,7 @@ validate_segment (const struct Phdr *phdr, struct file *file) {
 
 void argument_stack(char **parse, int count, struct intr_frame* if_) {	
 	// char *argument_addr[128];	// 주소값 따로 저장하려고 하면 오류가 발생함
-	int index;
+	// int index;
 	for (int i=count; i>0; i--) {
 		char *str = parse[i - 1];
 
@@ -526,7 +534,7 @@ void argument_stack(char **parse, int count, struct intr_frame* if_) {
 			*(char*)(if_->rsp) = c;	
 			if (j == 1) {
 				// argument_addr[index] = (char*) (if_->rsp);
-				index++;
+				// index++;
 				parse[i - 1] = (char*) (if_->rsp);	
 			}									
 		}		
@@ -574,6 +582,10 @@ struct file *process_get_file (int fd) {
 	struct thread *cur = thread_current();	
     struct file **fdt = cur->fdt;
 
+	if (fd < 0 || fd >= 128) {
+		return NULL;
+	}
+
     return fdt[fd];
 }
 
@@ -581,12 +593,31 @@ void process_close_file (int fd) {
 	struct thread *cur = thread_current();	
     struct file **fdt = cur->fdt;
 
-	file_close(fdt[fd]);
+    if (fd < 2 || fd >= 128) {
+		return NULL;
+	}
 
-	cur->current_fd = cur->current_fd - 1;
+	// csw: 왜 여기서 file_close를 해주지 않고 그냥 널처리만 하는 걸까    
+	fdt[fd] = NULL;
 }
 
+struct thread *get_child_process (int pid) {
+    struct thread *cur = thread_current();
+    struct list *child_list = &cur->child_list;
 
+    for (struct list_elem *e = list_begin(child_list); e != list_end(child_list); e = list_next(e))
+    {
+        struct thread *t = list_entry(e, struct thread, child_elem);
+        if (t->tid == pid) {
+            return t;
+		}
+    }
+    return NULL;
+}
+
+// void remove_child_process() {
+
+// }
 
 
 

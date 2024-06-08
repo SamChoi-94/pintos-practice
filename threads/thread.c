@@ -295,6 +295,10 @@ thread_create (const char *name, int priority,
 	t->tf.cs = SEL_KCSEG;
 	t->tf.eflags = FLAG_IF;
 
+	// csw: thread_unblock() 바로 직전에 실행되어야 하는 게 맞지 않나.
+	struct thread *cur = thread_current();
+	list_push_back(&cur->child_list, &t->child_elem);
+
 	t->fdt = palloc_get_page(PAL_ZERO);
 	if (t->fdt == NULL) {
 		return TID_ERROR;
@@ -586,12 +590,16 @@ init_thread (struct thread *t, const char *name, int priority) {
 	t->priority = priority;
 	t->original_priority = priority;
 	t->nice = 0;
-	t->recent_cpu = 0;
+	t->recent_cpu = 0;	
 	sema_init(&t->load_sema, 0);
+	sema_init(&t->wait_sema, 0);
 	sema_init(&t->exit_sema, 0);	
 	t->exit_status = 0;
 	t->current_fd = 1;
+	
 	list_init(&t->donors);
+	list_init(&t->child_list);
+
 	t->magic = THREAD_MAGIC;
 }
 

@@ -37,6 +37,8 @@ syscall_init (void) {
 	 * mode stack. Therefore, we masked the FLAG_FL. */
 	write_msr(MSR_SYSCALL_MASK,
 			FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
+
+	lock_init(&filesys_lock);
 }
 
 /* The main system call interface */
@@ -45,6 +47,9 @@ syscall_handler (struct intr_frame *f UNUSED) {
 	int syscall_number = f->R.rax;
 
 	switch (syscall_number) {
+		case SYS_FORK:
+			f->R.rax = fork(f->R.rdi);
+			break;
 		case SYS_EXEC:
 			f->R.rax = exec(f->R.rdi);
 			break;
@@ -86,6 +91,11 @@ syscall_handler (struct intr_frame *f UNUSED) {
 
 }
 
+pid_t fork (const char *thread_name) {
+	check_address(thread_name);
+	
+}
+
 void check_address(void* addr) {
 	if (addr == NULL) {
 		exit(-1);
@@ -94,6 +104,11 @@ void check_address(void* addr) {
 	if (!is_user_vaddr(addr)) {
 		exit(-1);
 	}
+
+	if (pml4_get_page(thread_current()->pml4, addr) == NULL) {
+		exit(-1);
+	}
+
 }
 
 int exec (const char *file) {
@@ -102,20 +117,19 @@ int exec (const char *file) {
 	return process_exec(file);
 }
 
-void halt() {
+void halt(void) {
 	power_off();
 }
 
 void exit(int status) {	
 	struct thread* cur = thread_current();
-	cur->status = status;	
-	printf("%s: exit(%d)\n", cur->name, cur->status);
+	cur->exit_status = status;	
+	printf("%s: exit(%d)\n", cur->name, status);
 	thread_exit();
 }
 
 int wait(pid_t pid) {
-	/* process_wait() 사용 */
-	// process_wait(pid);
+	return process_wait(pid);
 }
 
 bool create(const char *file , unsigned initial_size) {
@@ -180,13 +194,11 @@ int read (int fd, void *buffer, unsigned length) {
 		return -1;
 	}
 
-	if (2 <= fd && fd <= 128) {
-		struct file *file_found = process_get_file(fd);	
-		if (file_found == NULL) {
-			return -1;
-		}
-		return file_read(file_found, buffer, length);
+	struct file *file_found = process_get_file(fd);	
+	if (file_found == NULL) {
+		return -1;
 	}
+	return file_read(file_found, buffer, length);
 
 	return -1;
 }
@@ -203,15 +215,12 @@ int write (int fd, const void *buffer, unsigned length) {
 		return length;
 	}
 
-	if (2 <= fd && fd <= 128) {
-		struct file *file_found = process_get_file(fd);	
-		if (file_found == NULL) {
-			return -1;
-		}
-		return file_write(file_found, buffer, length);
+	struct file *file_found = process_get_file(fd);	
+	if (file_found == NULL) {
+		return -1;
 	}
-
-	return -1;
+	
+	return file_write(file_found, buffer, length);
 }
 
 int open (const char *file) {
