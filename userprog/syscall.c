@@ -7,11 +7,25 @@
 #include "userprog/gdt.h"
 #include "threads/flags.h"
 #include "intrinsic.h"
-#include "lib/user/syscall.h"
 #include "include/filesys/filesys.h"
 
 void syscall_entry (void);
 void syscall_handler (struct intr_frame *);
+void check_address(void *addr);
+void halt(void);
+void exit(int status);
+bool create(const char *file, unsigned initial_size);
+bool remove(const char *file);
+int open(const char *file_name);
+int filesize(int fd);
+int read(int fd, void *buffer, unsigned size);
+int write(int fd, const void *buffer, unsigned size);
+void seek(int fd, unsigned position);
+unsigned tell(int fd);
+void close(int fd);
+int fork(const char *thread_name, struct intr_frame *f);
+int exec(const char *cmd_line);
+int wait(int pid);
 
 /* System call.
  *
@@ -48,7 +62,7 @@ syscall_handler (struct intr_frame *f UNUSED) {
 
 	switch (syscall_number) {
 		case SYS_FORK:
-			f->R.rax = fork(f->R.rdi);
+			f->R.rax = fork(f->R.rdi, f);
 			break;
 		case SYS_EXEC:
 			f->R.rax = exec(f->R.rdi);
@@ -91,9 +105,8 @@ syscall_handler (struct intr_frame *f UNUSED) {
 
 }
 
-pid_t fork (const char *thread_name) {
-	check_address(thread_name);
-	
+int fork (const char *thread_name, struct intr_frame *if_) {
+	return process_fork(thread_name, if_);	
 }
 
 void check_address(void* addr) {
@@ -111,10 +124,19 @@ void check_address(void* addr) {
 
 }
 
-int exec (const char *file) {
-	check_address(file);
-	
-	return process_exec(file);
+int exec(const char *cmd_line)
+{
+	check_address(cmd_line);
+
+	char *cmd_line_copy;
+	cmd_line_copy = palloc_get_page(0);
+	if (cmd_line_copy == NULL)
+		exit(-1);							  // 메모리 할당 실패 시 status -1로 종료한다.
+	strlcpy(cmd_line_copy, cmd_line, PGSIZE); // cmd_line을 복사한다.
+
+	// 스레드의 이름을 변경하지 않고 바로 실행한다.
+	if (process_exec(cmd_line_copy) == -1)
+		exit(-1); // 실패 시 status -1로 종료한다.
 }
 
 void halt(void) {
@@ -128,7 +150,7 @@ void exit(int status) {
 	thread_exit();
 }
 
-int wait(pid_t pid) {
+int wait(int pid) {
 	return process_wait(pid);
 }
 
@@ -136,22 +158,14 @@ bool create(const char *file , unsigned initial_size) {
 	check_address(file);
 
 	bool result = filesys_create(file, initial_size);
-
-	if (result) {
-		return true;
-	}
-	return false;
+	return result;
 }
 
 bool remove(const char *file) {
 	check_address(file);
 
 	bool result = filesys_remove(file);
-
-	if (result) {
-		return true;
-	}
-	return false;
+	return result;
 }
 
 int filesize (int fd) {
@@ -163,10 +177,6 @@ int filesize (int fd) {
 }
 
 void seek (int fd, unsigned position) {
-	if (fd < 2 || fd > 128) {
-		return;
-	}
-
 	struct file *file_found = process_get_file(fd);	
 	if (file_found == NULL) {
 		return;
@@ -183,45 +193,111 @@ unsigned tell (int fd) {
 	return file_tell(file_found);
 }
 
-int read (int fd, void *buffer, unsigned length) {
+// int read (int fd, void *buffer, unsigned length) {	
+// 	check_address(buffer);
+
+// 	if (fd == 0) {
+// 		return input_getc();
+// 	}
+
+// 	if (fd == 1) {
+// 		return -1;
+// 	}
+
+// 	struct file *file_found = process_get_file(fd);	
+// 	if (file_found == NULL) {
+// 		return -1;
+// 	}
+
+// 	lock_acquire(&filesys_lock);
+// 	int bytes = file_read(file_found, buffer, length);
+// 	lock_release(&filesys_lock);
+
+// 	return bytes;
+// }
+
+
+int read(int fd, void *buffer, unsigned size)
+{
 	check_address(buffer);
 
-	if (fd == 0) {
-		return input_getc();
-	}
+	char *ptr = (char *)buffer;
+	int bytes_read = 0;
 
-	if (fd == 1) {
-		return -1;
+	if (fd == 0)
+	{
+		for (int i = 0; i < size; i++)
+		{
+			char ch = input_getc();
+			if (ch == '\n')
+				break;
+			*ptr = ch;
+			ptr++;
+			bytes_read++;
+		}
 	}
-
-	struct file *file_found = process_get_file(fd);	
-	if (file_found == NULL) {
-		return -1;
+	else
+	{
+		if (fd < 2)
+			return -1;
+		struct file *file = process_get_file(fd);
+		if (file == NULL)
+			return -1;
+		lock_acquire(&filesys_lock);
+		bytes_read = file_read(file, buffer, size);
+		lock_release(&filesys_lock);
 	}
-	return file_read(file_found, buffer, length);
-
-	return -1;
+	return bytes_read;
 }
 
-int write (int fd, const void *buffer, unsigned length) {
+
+// int write (int fd, const void *buffer, unsigned length) {
+// 	check_address(buffer);
+	
+// 	if (fd == 0) {
+// 		return -1;
+// 	}
+
+// 	if (fd == 1) {
+// 		putbuf(buffer, length);		
+// 		return length;
+// 	}
+
+// 	struct file *file_found = process_get_file(fd);	
+// 	if (file_found == NULL) {
+// 		return -1;
+// 	}
+
+// 	lock_acquire(&filesys_lock);
+// 	int bytes = file_write(file_found, buffer, length);
+// 	lock_release(&filesys_lock);
+	
+// 	return bytes;
+// }
+
+int write(int fd, const void *buffer, unsigned size)
+{
 	check_address(buffer);
-	
-	if (fd == 0) {
-		return -1;
+	int bytes_write = 0;
+	if (fd == 1)
+	{
+		putbuf(buffer, size);
+		bytes_write = size;
 	}
-
-	if (fd == 1) {
-		putbuf(buffer, length);		
-		return length;
+	else
+	{
+		if (fd < 2)
+			return -1;
+		struct file *file = process_get_file(fd);
+		if (file == NULL)
+			return -1;
+		lock_acquire(&filesys_lock);
+		bytes_write = file_write(file, buffer, size);
+		lock_release(&filesys_lock);
 	}
-
-	struct file *file_found = process_get_file(fd);	
-	if (file_found == NULL) {
-		return -1;
-	}
-	
-	return file_write(file_found, buffer, length);
+	return bytes_write;
 }
+
 
 int open (const char *file) {
 	check_address(file);	
@@ -232,14 +308,22 @@ int open (const char *file) {
 	}
 
 	int fd = process_add_file(file);
+	if (fd == -1) {
+		file_close(file_opened);
+	}
 
 	return fd;	
 }
 
 void close (int fd) {
-	if (fd < 2 || fd > 128) {
+	if (fd < 2 || fd >= 128) {
 		return;
 	}
-
+	struct file *file = process_get_file(fd);
+	if (file == NULL) {
+		return;
+	}
+	
+	file_close(file);
 	process_close_file(fd);	
 }

@@ -62,7 +62,7 @@ process_create_initd (const char *file_name) {
 	}
 
 	// struct thread *child_process = get_child_process(tid);
-	// sema_down(&child_process->wait_sema);
+	// sema_up(&child_process->exit_sema);
 	
 	return tid;
 }
@@ -83,10 +83,27 @@ initd (void *f_name) {
 /* Clones the current process as `name`. Returns the new process's thread id, or
  * TID_ERROR if the thread cannot be created. */
 tid_t
-process_fork (const char *name, struct intr_frame *if_ UNUSED) {
+process_fork (const char *name, struct intr_frame *if_ UNUSED) {	
 	/* Clone current thread to new thread.*/
-	return thread_create (name,
-			PRI_DEFAULT, __do_fork, thread_current ());
+	struct thread *cur = thread_current ();
+	memcpy (&cur->cloned_if, if_, sizeof (struct intr_frame));
+
+	tid_t child_tid = thread_create (name, PRI_DEFAULT, __do_fork, thread_current ());
+	if (child_tid == TID_ERROR) {
+		return TID_ERROR;
+	}
+
+	struct thread *child = get_child_process(child_tid);	
+	sema_down(&child->load_sema);
+
+	// csw: 이게 뭐지 ..? exit_status는 0 아니면 -1 아닌가
+	if (child->exit_status == -2)
+	{
+		sema_up(&child->exit_sema);
+		return TID_ERROR;
+	}
+
+	return child_tid;
 }
 
 #ifndef VM
@@ -101,21 +118,34 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 	bool writable;
 
 	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
+	if (is_kernel_vaddr(va)) {
+		return false;
+	}
 
 	/* 2. Resolve VA from the parent's page map level 4. */
 	parent_page = pml4_get_page (parent->pml4, va);
+	if (parent_page == NULL) {
+		return false;
+	}
 
 	/* 3. TODO: Allocate new PAL_USER page for the child and set result to
 	 *    TODO: NEWPAGE. */
+	newpage = palloc_get_page(PAL_USER | PAL_ZERO);
+	if (newpage == NULL) {
+		return false;
+	}
 
 	/* 4. TODO: Duplicate parent's page to the new page and
 	 *    TODO: check whether parent's page is writable or not (set WRITABLE
 	 *    TODO: according to the result). */
+	memcpy(newpage, parent_page, PGSIZE);
+	writable = is_writable(pte) ;
 
 	/* 5. Add new page to child's page table at address VA with WRITABLE
 	 *    permission. */
 	if (!pml4_set_page (current->pml4, va, newpage, writable)) {
 		/* 6. TODO: if fail to insert page, do error handling. */
+		return false;
 	}
 	return true;
 }
@@ -131,11 +161,12 @@ __do_fork (void *aux) {
 	struct thread *parent = (struct thread *) aux;
 	struct thread *current = thread_current ();
 	/* TODO: somehow pass the parent_if. (i.e. process_fork()'s if_) */
-	struct intr_frame *parent_if;
-	bool succ = true;
+	struct intr_frame *parent_if = &parent->cloned_if;
+	bool succ = true;	
 
 	/* 1. Read the cpu context to local stack. */
 	memcpy (&if_, parent_if, sizeof (struct intr_frame));
+	if_.R.rax = 0;	// csw: 이건 또 뭘까..
 
 	/* 2. Duplicate PT */
 	current->pml4 = pml4_create();
@@ -158,13 +189,25 @@ __do_fork (void *aux) {
 	 * TODO:       from the fork() until this function successfully duplicates
 	 * TODO:       the resources of parent.*/
 
+	struct file **parent_fdt = parent->fdt;
+	struct file **child_fdt = current->fdt;
+
+	for (int i=0; i<128; i++) {
+		if (parent_fdt[i] != NULL && i >= 2) {
+			child_fdt[i] = file_duplicate(parent_fdt[i]);
+			current->current_fd = i;
+		}
+	}
+	
+	sema_up(&current->load_sema);	
 	process_init ();
 
 	/* Finally, switch to the newly created process. */
 	if (succ)
 		do_iret (&if_);
 error:
-	thread_exit ();
+	sema_up(&current->load_sema);
+	exit(TID_ERROR);
 }
 
 /* Switch the current execution context to the f_name.
@@ -186,12 +229,15 @@ process_exec (void *f_name) {
 	process_cleanup ();
 
 	/* And then load the binary */
-	success = load (file_name, &_if);
+	success = load (file_name, &_if);	
 
-	/* If load failed, quit. */
-	palloc_free_page (file_name);
-	if (!success)
+	if (!success) {
+		palloc_free_page (file_name);
 		return -1;
+	}
+
+	/* If load failed, quit. */	
+	palloc_free_page (file_name);
 
 	/* Start switched process. */
 	do_iret (&_if);
@@ -214,11 +260,14 @@ process_wait (tid_t child_tid UNUSED) {
 	if (child_process == NULL) {
 		return -1;
 	}	
+
+	int exit_status = child_process->exit_status;
+
 	sema_down(&child_process->wait_sema);		
 	list_remove(&child_process->child_elem);
-	// sema_up(&child_process->exit_sema);
+	sema_up(&child_process->exit_sema);
 	
-	return child_process->exit_status;
+	return exit_status;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -236,11 +285,12 @@ process_exit (void) {
 	}
 
 	palloc_free_page(curr->fdt);
+	file_close(curr->running_file);
 	
 	process_cleanup ();
 
 	sema_up(&curr->wait_sema);
-	// sema_down(&curr->exit_sema);
+	sema_down(&curr->exit_sema);
 }
 
 /* Free the current process's resources. */
@@ -443,6 +493,9 @@ load (const char *file_name, struct intr_frame *if_) {
 		}
 	}
 
+	t->running_file = file;	
+	file_deny_write(file);
+
 	/* Set up stack. */
 	if (!setup_stack (if_))
 		goto done;
@@ -463,12 +516,11 @@ load (const char *file_name, struct intr_frame *if_) {
    }    	
 	
 	argument_stack(parse, count, if_);	
-
-	success = true;
+	success = true;	
 
 done:
 	/* We arrive here whether the load is successful or not. */
-	file_close (file);
+	// file_close (file);
 	return success;
 }
 
@@ -569,13 +621,25 @@ void argument_stack(char **parse, int count, struct intr_frame* if_) {
 
 
 int process_add_file (struct file *f) {	
-	struct thread *cur = thread_current();
-	int next_fd = cur->current_fd + 1;
-	cur->current_fd = cur->current_fd + 1;
-	struct file **fdt = cur->fdt;
-	fdt[next_fd] = f;	
+	// struct thread *cur = thread_current();
+	// int next_fd = cur->current_fd + 1;
+	// cur->current_fd = cur->current_fd + 1;
+	// struct file **fdt = cur->fdt;
+	// fdt[next_fd] = f;	
 
-	return next_fd;
+	struct thread *cur = thread_current();
+	struct file **fdt = cur->fdt;
+
+	for (int i=2; i<128; i++) {
+		struct file *file_ptr = fdt[i];
+		if (file_ptr == NULL) {
+			file_ptr = f;
+			cur->current_fd = i;
+			return cur->current_fd;
+		}
+	}
+
+	return -1;
 }
 
 struct file *process_get_file (int fd) {

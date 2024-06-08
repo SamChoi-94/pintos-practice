@@ -117,6 +117,9 @@ struct thread {
 	struct list child_list;
 	struct list_elem child_elem;
 
+	struct file *running_file;
+	struct intr_frame cloned_if;
+
 #ifdef USERPROG
 	/* Owned by userprog/process.c. */
 	uint64_t *pml4;                     /* Page map level 4 */
