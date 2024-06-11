@@ -97,11 +97,11 @@ process_fork (const char *name, struct intr_frame *if_ UNUSED) {
 	sema_down(&child->load_sema);
 
 	// csw: 이게 뭐지 ..? exit_status는 0 아니면 -1 아닌가
-	if (child->exit_status == -2)
-	{
-		sema_up(&child->exit_sema);
-		return TID_ERROR;
-	}
+	// if (child->exit_status == -2)
+	// {
+	// 	sema_up(&child->exit_sema);
+	// 	return TID_ERROR;
+	// }
 
 	return child_tid;
 }
@@ -189,17 +189,19 @@ __do_fork (void *aux) {
 	 * TODO:       from the fork() until this function successfully duplicates
 	 * TODO:       the resources of parent.*/
 
-	struct file **parent_fdt = parent->fdt;
-	struct file **child_fdt = current->fdt;
-
-	for (int i=0; i<128; i++) {
-		if (parent_fdt[i] != NULL && i >= 2) {
-			child_fdt[i] = file_duplicate(parent_fdt[i]);
-			current->current_fd = i;
+	for (int i=0; i < 128; i++) {
+		struct file *file = parent->fdt[i];
+		if (file ==NULL) {
+			continue;
 		}
+		if (file > 2) {
+			file = file_duplicate(file);
+		}
+		current->fdt[i] = file;
 	}
-	
-	sema_up(&current->load_sema);	
+	current->current_fd = parent->current_fd;
+
+	sema_up(&current->load_sema);
 	process_init ();
 
 	/* Finally, switch to the newly created process. */
@@ -256,18 +258,17 @@ process_exec (void *f_name) {
  * does nothing. */
 int
 process_wait (tid_t child_tid UNUSED) {	
+	// 부모 쪽에서 자식프로세스를 기다리는 함수로 생각됨
 	struct thread *child_process = get_child_process(child_tid);
 	if (child_process == NULL) {
 		return -1;
 	}	
 
-	int exit_status = child_process->exit_status;
-
-	sema_down(&child_process->wait_sema);		
-	list_remove(&child_process->child_elem);
-	sema_up(&child_process->exit_sema);
+	sema_down(&child_process->wait_sema); // 자식이 정상적으로 실행되어 종료되기까지 기다리게 함	
+	list_remove(&child_process->child_elem); // 자식이 종료하면서 sema_up 해주면 내 자식 리스트에서 제거
+	sema_up(&child_process->exit_sema);	// 자식의 종료를 풀어줌으로 thread.c의 431번 라인으로 넘어가서 자식프로세스에 할당되었던 자원들 모두 해제 및 소멸
 	
-	return exit_status;
+	return child_process->exit_status;
 }
 
 /* Exit the process. This function is called by thread_exit (). */
@@ -493,9 +494,8 @@ load (const char *file_name, struct intr_frame *if_) {
 		}
 	}
 
-	t->running_file = file;	
+	t->running_file = file;
 	file_deny_write(file);
-
 	/* Set up stack. */
 	if (!setup_stack (if_))
 		goto done;
@@ -503,8 +503,8 @@ load (const char *file_name, struct intr_frame *if_) {
 	/* Start address. */
 	if_->rip = ehdr.e_entry;
 
-	/* TODO: Your code goes here.
-	 * TODO: Implement argument passing (see project2/argument_passing.html). */
+	/* TODO: Your code goes here. - csw
+	 * TODO: Implement argument passing (see project2/argument_passing.html). */			
 	char *parse[128];
 	char *token;
 	save_ptr = NULL;
@@ -516,7 +516,7 @@ load (const char *file_name, struct intr_frame *if_) {
    }    	
 	
 	argument_stack(parse, count, if_);	
-	success = true;	
+	success = true;
 
 done:
 	/* We arrive here whether the load is successful or not. */
@@ -605,7 +605,7 @@ void argument_stack(char **parse, int count, struct intr_frame* if_) {
 		if_->rsp = if_->rsp - 8;
 		*(char **) (if_->rsp) = parse[i - 1];
 	}
-	
+
 	// if_->rsp = if_->rsp - 4;
 	// *(int *)if_->rsp = count;
 
@@ -627,19 +627,37 @@ int process_add_file (struct file *f) {
 	// struct file **fdt = cur->fdt;
 	// fdt[next_fd] = f;	
 
+
+	// struct thread *cur = thread_current();
+	// struct file **fdt = cur->fdt;
+	
+	// for (int i=2; i<128; i++) {
+	// 	// csw: 그래 .. fdt[i]는 널이 되어도 그걸 가리키는 file_ptr이 되면 널이 될 수 없는 건가
+	// 	struct file *file_ptr = fdt[i];
+	// 	if (file_ptr == NULL) {
+	// 		file_ptr = f;
+	// 		cur->current_fd = i;
+	// 		return cur->current_fd;
+	// 	}
+	// }
+
+	// return -1;
+
+
 	struct thread *cur = thread_current();
 	struct file **fdt = cur->fdt;
 
 	for (int i=2; i<128; i++) {
-		struct file *file_ptr = fdt[i];
-		if (file_ptr == NULL) {
-			file_ptr = f;
+		if (fdt[i] == NULL) {
+			fdt[i] = f;
+
 			cur->current_fd = i;
-			return cur->current_fd;
+			return i;
 		}
 	}
 
 	return -1;
+
 }
 
 struct file *process_get_file (int fd) {
@@ -678,22 +696,6 @@ struct thread *get_child_process (int pid) {
     }
     return NULL;
 }
-
-// void remove_child_process() {
-
-// }
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
