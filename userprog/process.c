@@ -119,7 +119,7 @@ duplicate_pte (uint64_t *pte, void *va, void *aux) {
 
 	/* 1. TODO: If the parent_page is kernel page, then return immediately. */
 	if (is_kernel_vaddr(va)) {
-		return false;
+		return true;
 	}
 
 	/* 2. Resolve VA from the parent's page map level 4. */
@@ -194,10 +194,7 @@ __do_fork (void *aux) {
 		if (file ==NULL) {
 			continue;
 		}
-		if (file > 2) {
-			file = file_duplicate(file);
-		}
-		current->fdt[i] = file;
+		current->fdt[i] = file_duplicate(file);
 	}
 	current->current_fd = parent->current_fd;
 
@@ -657,6 +654,21 @@ int process_add_file (struct file *f) {
 	}
 
 	return -1;
+
+
+	// struct thread *curr = thread_current();
+	// struct file **fdt = curr->fdt;
+
+	// // limit을 넘지 않는 범위 안에서 빈 자리 탐색
+	// while (curr->current_fd < 128 && fdt[curr->current_fd]) {
+	// 	curr->current_fd++;
+	// }
+	// if (curr->current_fd == 128) {
+	// 	return -1;
+	// }
+	// fdt[curr->current_fd] = f;
+
+	// return curr->current_fd;	
 
 }
 
