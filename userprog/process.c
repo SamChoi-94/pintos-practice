@@ -166,7 +166,7 @@ __do_fork (void *aux) {
 
 	/* 1. Read the cpu context to local stack. */
 	memcpy (&if_, parent_if, sizeof (struct intr_frame));
-	if_.R.rax = 0;	// csw: 이건 또 뭘까..
+	if_.R.rax = 0;	// csw: 깃북 시스템콜 fork 보면 "In child process, the return value should be 0."라고 나와있음. 해당 라인이 그 내용을 의미하는 거 같음
 
 	/* 2. Duplicate PT */
 	current->pml4 = pml4_create();

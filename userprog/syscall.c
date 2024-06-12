@@ -164,24 +164,27 @@ int open (const char *file_name) {
 	return fd;	
 }
 
-// int exec (const char *cmd_line) {
-// 	check_address(cmd_line);
-// 	return process_exec(cmd_line);
-// }
-
-int exec(const char *cmd_line)
-{
+int exec (const char *cmd_line) {
 	check_address(cmd_line);
+	
+	char *fn_copy;
+	tid_t tid;
+	
+	/* Make a copy of FILE_NAME.
+	 * Otherwise there's a race between the caller and load(). */
+	fn_copy = palloc_get_page (0);
+	if (fn_copy == NULL) {
+		return TID_ERROR;
+	}
+	strlcpy (fn_copy, cmd_line, PGSIZE);
 
-	char *cmd_line_copy;
-	cmd_line_copy = palloc_get_page(0);
-	if (cmd_line_copy == NULL)
-		exit(-1);							  // 메모리 할당 실패 시 status -1로 종료한다.
-	strlcpy(cmd_line_copy, cmd_line, PGSIZE); // cmd_line을 복사한다.
+	int pid = process_exec(fn_copy);
+	if (pid == -1) {
+		return -1;
+	}
 
-	// 스레드의 이름을 변경하지 않고 바로 실행한다.
-	if (process_exec(cmd_line_copy) == -1)
-		exit(-1); // 실패 시 status -1로 종료한다.
+	palloc_free_page(fn_copy);
+	return pid;
 }
 
 int fork (const char *thread_name, struct intr_frame *f) {
